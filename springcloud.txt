@@ -1,0 +1,225 @@
+一。eureka 服务中心（搭建集群的时候本地不能用localhost 必须用ip127.0.0.1）
+服务端@EnableEurekaServer
+客户端@EnableEurekaClient
+eureka:
+  client:
+    service-url:
+      defaultZone: http://127.0.0.1:8001/eureka/      //eureka的地址
+    register-with-eureka: false  //是否将自己注册到eureka的服务端
+  server:
+    enable-self-preservation: false //是否关掉自我保护模式 一旦进入 不再删除服务注册表中的数据（也就是不会注销任何微服务）
+
+不适合微服务的业务形态 
+      1很多强事务场景的 微服务一般采用的是用最终一致性
+      2业务稳定，迭代周期长
+      3访问压力不大 可用性要求不高（oa系统）
+数据拆分
+      1每个微服务都有单独的数据存储
+      2依据服务特点选择不同结构的数据库类型
+	展示类型的数据 类型丰富 事务要求不高的用nosql型
+	搜索类型的 es型
+	对事务要求搞的 mysql
+      3.确定边界（难点）
+         针对边界设计api接口  依据边界权衡数据冗余
+
+从一个实体数组中获取实体类某一属性的数组
+List<String> productId = order.getOrderDetailList().stream()
+                .map(OrderDetail::getProductId)
+                .collect(Collectors.toList());
+从一个实体数组中获取实体类某些属性（这些属性用dto来包装）的数组
+List<CartDTO> cartDTOS = order.getOrderDetailList().stream()
+                .map(e -> new CartDTO(e.getProductId(),e.getProductQuantity()))
+                .collect(Collectors.toList());
+
+二。应用间通信（接口之间的互相调用）
+      1rpc通信 dubbo
+      2http通信（restful）
+	1RestTemplate
+		1.restTemplate.getForObject("http://127.0.0.1:8080/msg",String.class);
+		2.ServiceInstance serviceInstance = loadBalancerClient.choose("PRODUCT");//通过应用名获取服务实例 再获取url跟port（serviceInstance.getHost()）
+		3.配置restTemplate的config类 在配置类里使用注解@LoadBalanced
+	2Feign	1启动类里配置@EnableFeignClients 
+		2写接口类ProductClient 加上注解@FeignClient(name = "product")（name是要调用的项目的应用名）
+		 接口方法
+		   @RequestMapping("/msg")//要调用方法的url 注意类上的requestmapping也需要写上
+    		    String getMsg();
+		3直接注入ProductClient 然后调用方法即可
+
+
+
+三。Ribbon 负载均衡器
+	找到ServerList(服务发现)之后通过ServerListFilter过滤(服务监听)之后通过IRule（服务规则）再次过滤
+	yml配置文件
+	product:
+  	    ribbon:
+                         NFLoadBalancerRuleClassName: com.netflix.loadbalancer.RandomRule
+四。config配置中心
+	优点：方便维护 配置内容安全与权限  更新配置项目无需重启
+	{label}-{name}-{profiles}.yml
+	访问地址为     远程分支/远程项目的名字-开发环境.yml
+启动类配置
+@EnableDiscoveryClient
+@EnableConfigServer
+1.服务端
+yml配置
+cloud:
+    config:
+      server:
+        git:
+          uri: https://github.com/zhangyusheng1314/conifg_repo     //git仓库的url地址
+          username: zhangyusheng1314 
+          password: zhangyusheng85
+          basedir: D:/ejj   //同步到本地的绝对路径
+#暴露出bus-refresh接口
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+
+2.客户端
+yml文件要改成bootstrap.yml 这样才能通过config的服务端去远程获取配置文件
+spring:
+  application:
+    name: order
+  cloud:
+    config:
+      discovery:
+        enabled: true
+        #eureka上config项目的应用名
+        service-id: CONFIG
+      #结合本项目的应用名 获取git上面的文件的名称 order-dev.yml
+      profile: dev
+eureka:
+  client:
+    service-url:
+      defaultZone: http://127.0.0.1:8001/eureka/
+
+3.springcloudbus整合rabbitmq实现自动更新配置文件
+	rabbitmq安装下载 cmd进入rabbitmq的sbin文件->rabbitmq-plugins enable rabbitmq_management
+	浏览器浏览localhost:15672
+
+	1.引入包spring-cloud-starter-bus-amqp
+	2config server端yml配置暴露出bus-refresh接口
+	#暴露出bus-refresh接口
+	management:
+  	  endpoints:
+    	    web:
+      	      exposure:
+        	       include: "*"
+	3用cmd命令curl -v -X POST “http://localhost:8080/actuator/bus-refresh”或者git上的webhook配置去请求这个接口（注意webhook的地址必须是外网能访问到的地址）
+	4.用controller去验证的时候需要在controller中加注解@RefreshScope
+	
+	原理          
+	      1bus-refresh接口通知config-server 
+          	      2config-server接受到请求并发送给 springcloudbus
+                      3springcloudbus通知config-client端去server端拿最新的配置
+
+            	5rabbit整合springcloud
+	 消费端 @RabbitListener(queuesToDeclare = @Queue("productInfo")) 监听(自动创建队列的)消息
+	           @RabbitListener(bindings =@QueueBinding( value = @Queue("myQueue"),exchange = @Exchange("myExchange")))绑定exchange
+	生产端 amqpTemplate.convertAndSend(Exchang,key,message)发送消息
+	
+	6.springcloudstream使用
+	消费端streamclient接口里
+		@Input(StreamClient.INPUT)
+    		SubscribableChannel input();//订阅消费通道
+    		@Output(StreamClient.OUTPUT)
+    		MessageChannel output();//消息发送通道
+	          消费类中
+		@StreamListener(value = StreamClient.INPUT)监听
+		@SendTo(StreamClient.OUTPUT)//回调通知
+	生产端	
+		streamClient.output().send(message）发送消息
+五 zuul服务网关
+1启动类配置@EnableZuulProxy可以通过zuul模块的端口+product的应用名+product模块的接口地址 如localhost:9000/product/product/list
+2.自定义接口 localhost:9000/product/product/list->localhost:9000/myProduct/product/list
+配置文件
+zuul:
+  routes:
+    myProduct://随机定义
+      path: /myProduct/**
+      serviceId: product
+      sensitiveHeaders://配置cookie的传入
+    #如果只有path和serviceId两个属性 可以简写
+#    product: /myProduct/**
+  #配置不能访问某个路径
+  ignored-patterns:
+    - /**/product/list
+
+3.启动类配置来实现自动刷新 无需重启
+    @Bean
+    @RefreshScope
+    @ConfigurationProperties("zuul")
+    @Primary //必须
+    public ZuulProperties zuulProperties(){
+        return new ZuulProperties();
+    }
+4.过滤器继承zuulFilter来实现权限控制，限流（令牌桶算法）
+	1.RequestContext requestContext = RequestContext.getCurrentContext();
+	   HttpServletRequest request = requestContext.getRequest();
+	   通过获取HttpServletRequest 中的信息 如 uri cookie等来判断是否让接口可以被访问到
+	2跨域配置
+
+六  hystrix超时降级，信号量限流 ，线程池限流，断路器熔断（可以用@HystrixCommand注解配置 也可以在配置文件里配置）
+     1.超时降级
+     @HystrixCommand(
+            commandProperties = {
+                    //设置超时时间，默认1000毫秒
+                    @HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds",value = "2000")
+            },
+            fallbackMethod = "createOrderFallbackMethod4Timeout"
+    )
+     2.熔断 如果出错率高达60%就会直接降级
+     需要在启动类里加注解@EnableCircuitBreaker
+     @HystrixCommand(
+            //指定特定的方法
+            commandKey = "getProductList",
+            commandProperties = {
+                    //设置熔断 打开断路器
+                    @HystrixProperty(name = "circuitBreaker.enabled",value = "true"),
+                    //设置最小请求数
+                    @HystrixProperty(name = "circuitBreaker.requestVolumeThreshold",value = "10"),
+                    //当处于半开启状态的时候 定时器会有10秒的时间去判断主程序是否出错 不出错的话熔断器关闭 否则开启
+                    @HystrixProperty(name = "circuitBreaker.sleepWindowInMilliseconds",value = "10000"),
+                    //出错率达到60%
+                    @HystrixProperty(name = "circuitBreaker.errorThresholdPercentage",value = "60")
+            }
+    )
+    3.hytrix dashboard可视化查看
+      启动类需要添加@EnableHystrixDashboard
+     打开localhost:8081/hystrix 配置http://127.0.0.1:8081/actuator/hystrix.stream
+     如果在actuator/hystrix.stream接口需要在启动类额外配置
+     @Bean
+    public ServletRegistrationBean getServlet(){
+        HystrixMetricsStreamServlet streamServlet = new HystrixMetricsStreamServlet();
+        ServletRegistrationBean registrationBean = new ServletRegistrationBean(streamServlet);
+        registrationBean.setLoadOnStartup(1);
+        registrationBean.addUrlMappings("/hystrix/hystrix.stream");
+        registrationBean.setName("HystrixMetricsStreamServlet");
+        return registrationBean;
+    }
+
+七 sleuth zipkin服务追踪
+注意：feginClient方式调用接口超时需要添加配置
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 5000
+        readTimeout: 5000
+        loggerLevel: basic
+ribbon超时需要配置
+ribbon:
+  ReadTimeout: 5000
+  SocketTimeout: 5000
+#服务追踪可视化
+  zipkin:
+    base-url: http://localhost:9411/
+    #发送到web端 如果项目中配置了rabbit的话会默认发送到rabbit
+    sender:
+      type: web
+  #将服务追踪的东西发送到其他平台 默认发送0.1即发送10%
+  sleuth:
+    sampler:
+      probability: 1

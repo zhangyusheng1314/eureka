@@ -1,0 +1,192 @@
+zookeeper作用体现：首脑模式（主从节点）    
+		统一配置文件   
+		发布与订阅（发布者将数据存在节点，订阅者去读取）
+		分布式锁（有人在操作必须在队列中等待该人操作完）
+		集群管理  （保证数据的一致性，主节点数据可以同步到从节点，客户端与主节点断开后，可以去从节点读取数据）
+
+session 会话（服务与客户端的连接）：临时节点会与session共存 
+			        过期时间  
+			        心跳机制：客户端服务端的ping包
+
+watch机制 统一配置文件，主机返回事件信息给客户端文件已经变化，客户端自动更新变化
+
+acl使用场景 1开发/测试环境分离 2限制ip进行访问
+
+关闭linux防火墙命令 systemctl stop firewalld.service
+禁止firewall开机启动 systemctl disable firewalld.service
+查看防火墙状态 firewall-cmd --state
+查看zookeeper报错日志 zookeeper bin目录下的zookeeper.out为日志记录
+查看zookeeper服务端是否启动 ./zkServer.sh status
+
+查看文件 tail -f -n 200（-f表示可以监视文件增长，如日志文件一直增加的内容，-n从第200行开始显示）
+安装yum命令 yum [options] [command] （ 例子yum install -y nc      -y为安装的时候提示选择全选yes 安装nc命令）
+查看本文件夹所有文件 ls
+查看本文件夹所有文件详情 ll
+查看IP地址 ip addr
+创建文件夹 mkdir -p name （-p可创建多级目录）
+创建文件 touch name
+复制文件 cp -ri source destination （-r可以递归复制 -i如果有相同文件，则会询问是否覆盖重写）
+重新命名文件 mv oldname newname
+移动文件夹 mv  name 文件路径
+进入文件夹 cd（进入jdk这种文件类型 要用 cd jdk8/）
+返回上级文件 cd .. 返回上次文件 cd -
+删除文件目录，即文件夹中还有其他目录 rm -rf /usr/local/zookeeper(删除zookeeper整个目录)
+查出要删除文件的索引节点号 ls -i（linux是通过节点号来识别文件的）
+删除特殊名字的文件 find ./ -inum 17881877 -exec rm {} \;(注意分号不能少)
+上传和下载文件 rz  sz
+查找文件 find path -name‘文件名’ locate 文件名（locate较find更快，在一个数据库(/var/lib/locatedb)中搜索指定的文件，而不是搜索目录）
+查看进程 ps -aux | grep xxxx(查找进程)（jps命令 只显示java进程）
+停止进程 kill -9 pid（通过查找进程找到pid）
+硬链接 ln source target（通过索引节点来进行连接，两个文件索引相同，互不影响）
+软连接 ln -s source target（通过在target中存放source的路径来连接，删除source对target有影响）
+df：列出文件系统的整体磁盘使用量
+du：检查磁盘空间使用量
+fdisk：用于磁盘分区
+查看文件的属性：stat 文件名（比较重要）
+
+查看所有的docker： sudo docker ps
+进入docker：sudo docker exec -it docker名字 /bin/bash
+
+配置加载动态库.so文件
+在 /etc/profile配置环境变量export  LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local(冒号后面跟动态库文件所在的路径)
+source /etc/profile（环境变量生效）
+
+编辑文件 vi /etc/sysconfig/network-scripts/ifcfg-ens33（网卡配置地址）（编辑文件操作 a|i ->编辑->esc->:wq ）
+重启虚拟机网络  service network restart
+
+解压 tar -zxvf jdk-8u211-linux-x64.tar.gz
+配置jdk的环境变量  进入解压文件夹jdk8 -> vi /etc/profile 添加环境变量地址 
+                              -> source /etc/profile使新建立环境生效 -> java -version查看版本
+
+环境变量配置
+export JAVA_HOME=/usr/jdk8
+export ZOOKEEPER_HOME=/usr/local/zookeeper
+export CLASSPATH=.:$JAVA_HOME/jre/lib/rt.jar:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+export PATH=:$ZOOKEEPER_HOME/bin:$JAVA_HOME/bin:$PATH
+
+1.zookeeper zoo.cfg配置文件修改 添加 dataDir=/usr/local/zookeeper/dataDir
+			       dataLogDir=/usr/local/zookeeper/dataLogDir
+2.在zookeeper文件下创建目录dataDir dataLogDir
+
+3.zookeeper服务器启动 ./zkServer.sh start
+
+4客户端启动 ./zkCli.sh
+
+5停止客户端 ctrl-z
+
+6.显示节点 ls path [watch]
+  显示节点的状态 stat path  [watch]
+  显示节点以及节点状态 ls2=ls+stat             ls2 path
+  获取节点值以及状态 get path [watch]
+
+7.创建节点  create [-s] [-e] path data acl (-s为顺序节点 -e为临时节点导致状态eph发生变化  acl为权限)
+
+8.更新节点值 set path data [version](会导致节点状态的版本号发生变化，version参数可以用来当做乐观锁)
+   乐观锁例子：set /imooc 123 1(当前版本号)  这个时候再用set /imooc 123 1的时候就会报错，因为这个时
+                      候版本号已经变成2，意味着已经有人去修改了这个字段，必须set /imooc 123 2才不会报错。
+  拓展：乐观锁的另一种方式CAS 内存值，预期值，新值，若内存值与预期值相等则用新值更新内存值，失败重试
+
+9.删除节点 delete path [version](只有版本号相同的时候才可以删除)
+
+10 watcher机制: 1.znode发生变化则触发watcher  2.zk的watcher是一次性的 3.增删改触发的事件不同
+
+11父节点: 增NodeCreated事件触发需要在stat 中设置watch（在父节点中设置）
+	删NodeDeleted事件触发需要在get中设置watch（在父节点中设置）
+     	改NodeDataChanged事件触发需要在get中设置watch（在父节点中设置）
+     	
+
+   子节点：增删 NodeChildrenChanged 事件触发需要在ls 中设置watch（在父节点中设置）
+	改 NodeDataChanged事件触发需要在get中设置watch（在子节点中设置，把子节点当成父节点，同父节点的方法）
+	
+12 acl的构成[scheme,id:permission] scheme:代表采用的某种权限机制 id:代表允许访问的用户 permissions:权限组合字符
+     例子：world:anyone:cdrwa（只有一个用户)
+	auth:user:password:cdrwa(需要注册的用户有权限)
+	digest:username:BASE64(SHA1(password)):cdrwa(需要对密码加密)
+	ip:192.168.1.1:cdrwa(限制ip进行访问)
+	super（超级管理员)
+    cdrwa  create创建子节点 delete 删除子节点 read读取父子节点 write设置节点数据 a 设置权限
+
+
+13    获得节点权限getAcl path
+14    设置节点权限setAcl path acl
+15    添加用户： addauth scheme auth（添加过用户之后，之后重设用户不
+	      会改变用户名密码，因此之后设置权限可以省略用户名密码 setAcl /imooc/name auth::crdwa）
+
+16    添加super超级管理员： 修改 zkServer.sh文件，添加语句-Dzookeeper.DigestAuthenticationProvider.superDigest=imooc:XwEDaL3J0JQGkRQzM0DpO6zMzZs=
+                    	       并且重启服务器，打开客户端，这个时候需要添加addauth digest imooc:imooc,否则没有权限
+
+17 四字命令  echo mntr | nc ip 2181
+	stat 查看zk的状态信息 
+	ruok 查看zkServer是否启动 返回imok
+	dump 列出未经处理的会话和临时节点
+	mntr 列出集群的关键性能数据
+	conf 查看服务器配置
+	cons 连接到服务器的客户端信息
+	envi 环境变量
+	wchs  展示watch的数量
+	wchc/wchp  session和watch以及path和watch的信息
+		（需要在conf目录的zoo.cfg文件末端添加 4lw.commands.whitelist=*，然后重启服务器）
+
+
+18 集群的搭建 主从节点 选举模式（最少三台  奇数个）
+    伪分布式集群  1.一台虚拟机，
+	         2.复制zookeeper zookeeper02 zookeeper03
+ 	         3.修改每一个zookeeper conf目录下的zoo.cfg
+		分别修改
+		clientport = 2181 dataDir跟dataDirLog的路径
+		clientport = 2182 dataDir跟dataDirLog的路径 zookeeper02
+		clientport = 2183 dataDir跟dataDirLog的路径 zookeeper03
+		都添加
+		server.1=192.168.146.130:2888:3888   
+		server.2=192.168.146.130:2889:3889
+		server.3=192.168.146.130:2890:3890
+		
+	         4.在zookeeper dataDir目录下创建myid文件 值设置分别设置为1和2和3
+	         5.重启每一个zookeeper的服务器
+	         6.然后用客户端连接其中一个服务器 ./zkCli.sh -server ip:2181 
+
+    真分布式集群 1.三台虚拟机
+	        2.如果zookeeper目录的名字不一样，要注意修改 vi /etc/profile/的环境变量  刷新 source /etc/profile
+	        3.修改每一个zookeeper conf目录下的zoo.cfg
+		检查三台机子的clientport = 2181是否一致，dataDir跟dataDirLog的路径是否正确 
+		都添加（保持 leader跟follower通信端口 跟 选举用的端口 都一致，这边跟伪虚拟机的区别）
+		server.1=192.168.146.131:2888:3888   
+		server.2=192.168.146.132:2888:3888
+		server.3=192.168.146.133:2888:3888
+	        4.在zookeeper dataDir目录下创建myid文件 值设置分别设置为1和2和3
+	        5.如果出现没有到主机的路由的错误，需要检查linux系统防火墙是否关闭（关闭防火墙命令 systemctl stop firewalld.service）
+	        6.重启每一个zookeeper的服务器
+	        7.查看每台机子的服务器是否启动 ./zkServer.sh status
+ 	        8.然后用客户端连接其中一个服务器 ./zkCli.sh -server ip:2181
+
+     验证选举模式，关闭其中一台机子，然后去检查另两台的服务端的status  这边关闭机子之后防火墙重新开启，需要重新关闭防火墙
+
+19 当用java代码去连接服务器的时候需要去关闭防火墙
+    会话的连接以及恢复
+20 zk java客户端
+    1zk原生api java代码 不足：超时不支持自动重连  watch只能使用一次  不支持递归创建节点（即必须先创建父节点，再创建子节点）
+    2.zkclient 命令行
+    3 apache curator 优点：1.NodeCache增加监听事件支持watch使用多次  
+		         2.creatingParentsIfNeeded()支持递归创建
+	   	         3.PathChildrenCache增加监听事件 监听同一个节点来统一配置文件
+ 		         4.提供分布式锁  提供zk常用工具类
+
+21 系统之间的调度方式  webservice(wsdl)   httpclient   rpc(dubbo)/restful（springcloud）
+    dubbo:降低系统耦合度
+    运行dubbo的三种方式   tomcat方式启动war包（开发方式）  main方法启动    dubbo内置main打成jar包运行
+    provider 配置xml    （服务提供者应用的名称application 注册中心配置register  暴露服务的端口protocol 暴露服务接口service）
+    consumer  配置xml （服务消费者应用的名称application 注册中心配置register  调用服务接口reference）
+    monitor监测中心  1provider  consumer的xml中配置monitor
+		2install官网下载后解压的dubbo2.6.0，
+                               3取出dubbo-monitor-simple-2.6.0-assembly.tar.gz解压，
+	               4.进入config目录，进行配置dubbo.properties
+	               5.浏览器进入监测中心http://localhost:8180
+   注意事项：dubbo2.6版本要注意qos的端口号重复，在项目中添加dubbo.properties文件配置端口号dubbo.qos.port=
+
+22 分布式锁（并发会导致数据不一致，这时候就用到分布式锁）
+     活锁：线程A可以获得锁 ，线程b也可以，但是他们互相谦让，导致所有线程都无法使用资源
+     死锁：两线程在运行过程中争夺资源，导致无法继续执行
+                1.互斥：线程A获得锁 线程B必须等待直到A释放
+	2.请求和保持条件：线程A获得R锁,但又去请求R2锁，而此时R2被线程B占用，导致线程A等待R2锁，但是又持有R锁不释放
+	3.不剥夺条件，线程A获得的锁，必须有自己释放，不能被其他线程释放
+	4.环路等待条件：线程A等待线程B，线程B等待线程A释放资源
